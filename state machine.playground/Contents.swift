@@ -2,77 +2,72 @@
 import Foundation
 import PlaygroundSupport
 
-protocol StateMachineDelegate: class {
-    associatedtype State
+protocol State {}
+
+protocol FiniteStateMachineRepresentable: class {
+    associatedtype StateType: Hashable
     
-    func transition(to state: State)
-    func shouldTransition(from: State, to: State) -> Bool
-    func didTransition(from: State, to: State)
+    var currentState: StateType { get }
+    var allowedTransitions: [StateType: Set<StateType>] { get }
+    
+    func transition(to: StateType) throws
+    func didTransitionFrom(from:StateType, to:StateType)
 }
 
-final class StateMachine<P: StateMachineDelegate> {
+enum InitialRoute: State  {
+    case authentication
+    case main
+}
+
+final class FiniteStateMachine: FiniteStateMachineRepresentable {
     
-    weak var delegate: P?
-    internal var currentState: P.State {
-        willSet {
-            guard let delegate = delegate else {
-                fatalError("State machine delegate not set!")
-            }
-            
-            guard delegate.shouldTransition(from: currentState, to: newValue) else {
-                print("Neps")
-                return
-            }
-            print(newValue)
-            self.currentState = newValue
+    typealias StateType = InitialRoute
+    
+    private(set) var currentState: StateType {
+        didSet {
+            didTransitionFrom(from: oldValue, to: currentState)
+        }
+    }
+        
+    private(set) var allowedTransitions: [StateType: Set<StateType>]
+    
+    init(initialState: StateType, transitions: [StateType: Set<StateType>]) {
+        self.currentState = initialState
+        self.allowedTransitions = transitions
+    }
+    
+    func transition(to destination: InitialRoute) {
+        
+        guard let validState = allowedTransitions[currentState] else {
+            print("Invalid current state!")
+            // TODO: throw ´invalid current state´ error
+            return
         }
         
-        didSet {
-            delegate?.didTransition(from: oldValue, to: currentState)
+        guard validState.contains(destination) else {
+            print("Invalid transition!")
+            // TODO: throw ´invalid transition´ error
+            return
         }
+        
+        currentState = destination
     }
-
-    init(state: P.State) {
-        self.currentState = state
-    }
-}
-
-class AppCoordinator {
-     var machine = StateMachine<AppCoordinator>(state: .ready)
     
-    init() {
-        machine.delegate = self
+    func didTransitionFrom(from: InitialRoute, to: InitialRoute) {
+        print("Successfully transitioned from \(from) to \(to)")
+        // TODO even later: replace this with an observable property for the current state (and use FRP to propagate this event)
     }
 }
     
-extension AppCoordinator: StateMachineDelegate {
     
-    typealias State = AsyncNetworkState
-    
-    enum AsyncNetworkState{
-        case ready, fetching, saving(id: Int)
-    }
-    
-    func transition(to state: State) {
-        guard shouldTransition(from: machine.currentState, to: state) else { return }
-        machine.currentState = state
-    }
-    
-    func shouldTransition(from: State, to: State) -> Bool {
-        print("Should? \(to)")
-        switch (machine.currentState, to) {
-        case (.ready, .fetching):
-            return true
-        default:
-            return false
-        }
-    }
-    
-    func didTransition(from: State, to: State) {
-        print("Transitioned from: \(from) to \(to)")
-    }
-}
+let fsm = FiniteStateMachine(initialState: .authentication,
+                             transitions: [
+                                .authentication: Set<FiniteStateMachine.StateType>([.main])
+                             ])
 
-let coordinator = AppCoordinator()
-coordinator.machine.currentState = AppCoordinator.AsyncNetworkState.saving(id: 14)
+fsm.transition(to: .main)
+
+// Notes: 
+// It's pivotal that the FSM is for pure functions only (no side effects here!)
+// Each Coordinator would have an instance of the FSM and it would either observe the machine's currentState or use the didTransition method via delegation, possibly, to inject side-effects (aka making the viewControllers react to the new state)
 
