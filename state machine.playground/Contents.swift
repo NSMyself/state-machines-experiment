@@ -67,7 +67,11 @@ let fsm = FiniteStateMachine(initialState: .authentication,
 
 fsm.transition(to: .main)
 
-// Notes: 
+// Notes:
 // It's pivotal that the FSM is for pure functions only (no side effects here!)
 // Each Coordinator would have an instance of the FSM and it would either observe the machine's currentState or use the didTransition method via delegation, possibly, to inject side-effects (aka making the viewControllers react to the new state)
 
+// TODO tl;dr:
+// 1. Add custom error handling
+// 2. Setup a "fake" coordinator and a delegate method between the FSM and it's parent coordinator; make the live views reflect changes in the current state
+// 3. replace the `didTransition` method with proper FRP bindings
