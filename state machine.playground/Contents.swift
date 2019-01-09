@@ -50,6 +50,7 @@ final class FiniteStateMachine: FiniteStateMachineRepresentable {
     
     func didComplete(_ transition: Transition<StateType>) {
         print("Successfully executed \(transition.name ?? "nameless") transition")
+        transition.handler?()
         // TODO even later: replace this with an observable property for the current state (and use FRP to propagate this event)
     }
 }
@@ -125,7 +126,7 @@ fsm.send(event: .authentication)
 
 // Notes:
 // The FSM should be kept side-effects free; only Transition objects can have side effects (via the `handler` instance variable)
-// Each Coordinator would have an instance of the FSM and it would either observe the machine's currentState or use the didTransition method via delegation, possibly, to inject side-effects (aka making the viewControllers react to the new state)
+// Each Coordinator would have an instance of the FSM and it would either observe the machine's currentState or use the didTransition method via delegation, possibly
 
 // TODO tl;dr:
 // 1. Add custom error handling
