@@ -1,74 +1,130 @@
-
+import UIKit
 import Foundation
 import PlaygroundSupport
 
-protocol State {}
+protocol State: Hashable {}
 
 protocol FiniteStateMachineRepresentable: class {
-    associatedtype StateType: Hashable
+    associatedtype StateType: State
     
     var currentState: StateType { get }
-    var allowedTransitions: [StateType: Set<StateType>] { get }
+    var allowedTransitions: [Transition<StateType>] { get }
     
-    func transition(to: StateType) throws
-    func didTransitionFrom(from:StateType, to:StateType)
-}
-
-enum InitialRoute: State  {
-    case authentication
-    case main
+    func send(event: StateType) throws
+    func didComplete(_ transition: Transition<StateType>)
 }
 
 final class FiniteStateMachine: FiniteStateMachineRepresentable {
     
     typealias StateType = InitialRoute
     
-    private(set) var currentState: StateType {
-        didSet {
-            didTransitionFrom(from: oldValue, to: currentState)
-        }
-    }
-        
-    private(set) var allowedTransitions: [StateType: Set<StateType>]
+    private(set) var currentState: StateType
+    private(set) var allowedTransitions: [Transition<StateType>]
     
-    init(initialState: StateType, transitions: [StateType: Set<StateType>]) {
+    init(initialState: StateType, transitions: [Transition<StateType>]) {
         self.currentState = initialState
         self.allowedTransitions = transitions
     }
     
-    func transition(to destination: InitialRoute) {
+    func send(event nextState: InitialRoute) {
         
-        guard let validState = allowedTransitions[currentState] else {
-            print("Invalid current state!")
+         let validStates = allowedTransitions.filter { $0.from.contains(currentState) }
+        
+        guard validStates.count > 0 else {
+            print("Unable to find an allowed transition starting from \(currentState)")
             // TODO: throw ´invalid current state´ error
             return
         }
         
-        guard validState.contains(destination) else {
+        let validDestinations = validStates.filter { $0.to == nextState }
+        
+        guard let transition = validDestinations.first else {
             print("Invalid transition!")
             // TODO: throw ´invalid transition´ error
             return
         }
         
-        currentState = destination
+        currentState = transition.to
+        didComplete(transition)
     }
     
-    func didTransitionFrom(from: InitialRoute, to: InitialRoute) {
-        print("Successfully transitioned from \(from) to \(to)")
+    func didComplete(_ transition: Transition<StateType>) {
+        print("Successfully executed \(transition.name ?? "nameless") transition")
         // TODO even later: replace this with an observable property for the current state (and use FRP to propagate this event)
     }
 }
     
+enum InitialRoute: State  {
+    case entry
+    case authentication
+    case registration
+    case main
+}
+
+struct Transition<T: State> {
+    var name: String?
+    let from: Set<T>
+    let to: T
+    var handler: (() -> Void)?
     
-let fsm = FiniteStateMachine(initialState: .authentication,
+    init(name: String? = nil, from source: T, to destination: T, handler: (()->Void)? = nil) {
+        self.init(name: name, from: Set<T>([source]), to: destination, handler: handler)
+    }
+    
+    init(name: String? = nil, from sourceArray: [T], to destination: T, handler: (()->Void)? = nil) {
+        self.init(name: name, from: Set<T>(sourceArray), to: destination, handler: handler)
+    }
+    
+    init(name: String? = nil, from: Set<T>, to: T, handler: (()->Void)? = nil) {
+        self.name = name
+        self.from = from
+        self.to = to
+        self.handler = handler
+    }
+}
+
+extension Transition: Hashable {
+    func hash(into hasher: inout Hasher) {
+        
+        if let name = name {
+            hasher.combine(name)
+        }
+        
+        hasher.combine(from)
+        hasher.combine(to)
+    }
+    
+    static func == (lhs: Transition, rhs: Transition) -> Bool {
+        return (lhs.from.hashValue == rhs.from.hashValue) && (lhs.to.hashValue == rhs.to.hashValue)
+    }
+}
+
+let fsm = FiniteStateMachine(initialState: .entry,
                              transitions: [
-                                .authentication: Set<FiniteStateMachine.StateType>([.main])
+                                    Transition(
+                                        name: "login",
+                                        from: [.entry, .registration],
+                                        to: .authentication,
+                                        handler: { print("User wants to login") }
+                                    ),
+                                    Transition(
+                                        name: "register",
+                                        from: [.entry, .authentication],
+                                        to: .registration,
+                                        handler: { print("User wants to register") }
+                                    ),
+                                    Transition(
+                                        name: "loggedIn",
+                                        from: [.authentication, .registration],
+                                        to: .main,
+                                        handler: { print("User actually logged in") }
+                                    )
                              ])
 
-fsm.transition(to: .main)
+fsm.send(event: .authentication)
 
 // Notes:
-// It's pivotal that the FSM is for pure functions only (no side effects here!)
+// The FSM should be kept side-effects free; only Transition objects can have side effects (via the `handler` instance variable)
 // Each Coordinator would have an instance of the FSM and it would either observe the machine's currentState or use the didTransition method via delegation, possibly, to inject side-effects (aka making the viewControllers react to the new state)
 
 // TODO tl;dr:
